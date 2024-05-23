@@ -1,0 +1,120 @@
+#include <WiFi.h>
+#include <HTTPClient.h>
+#include <time.h>
+
+// Configuración de la red Wi-Fi
+const char* ssid = "Redmi Note 10 Pro";
+const char* password = "internetxd";
+
+// Configuración del servidor
+const char* serverUrl = "http://52.200.139.211:5000/add_measurement";
+
+// Configuración del servidor NTP para sincronización de hora
+const char* ntpServer = "pool.ntp.org";
+const long gmtOffset_sec = 0;
+const int daylightOffset_sec = 3600;
+
+// Pines de los LEDs
+const int greenLedPin = 2;
+const int blueLedPin = 4;
+
+// Configuración del intervalo de tiempo
+unsigned long previousMillis = 0;
+const long interval = 1000;  // Intervalo de 1 segundo
+
+void setup() {
+  Serial.begin(115200);
+
+  // Configuración de los pines de los LEDs
+  pinMode(greenLedPin, OUTPUT);
+  pinMode(blueLedPin, OUTPUT);
+  digitalWrite(greenLedPin, LOW);
+  digitalWrite(blueLedPin, LOW);
+
+  // Conectar a Wi-Fi
+  WiFi.begin(ssid, password);
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(1000);
+    Serial.println("Connecting to WiFi...");
+  }
+  Serial.println("Connected to WiFi");
+
+  // Sincronizar con el servidor NTP
+  configTime(gmtOffset_sec, daylightOffset_sec, ntpServer);
+  printLocalTime();
+}
+
+void loop() {
+  unsigned long currentMillis = millis();
+  
+  if (currentMillis - previousMillis >= interval) {
+    previousMillis = currentMillis;
+    
+    // Leer valor aleatorio simulado del sensor
+    int sensorValue = random(1, 61);
+
+    // Encender el LED verde al generar el número aleatorio
+    digitalWrite(greenLedPin, HIGH);
+    delay(100); // Mantener encendido el LED verde por un breve momento
+    digitalWrite(greenLedPin, LOW);
+    
+    // Obtener hora actual en formato Unix
+    time_t now;
+    struct tm timeinfo;
+    if (!getLocalTime(&timeinfo)) {
+      Serial.println("Failed to obtain time");
+      return;
+    }
+    time(&now);
+    long unixTime = (long)now;
+    
+    // Enviar datos al servidor
+    sendData(unixTime, sensorValue);
+  }
+}
+
+void printLocalTime() {
+  struct tm timeinfo;
+  if (!getLocalTime(&timeinfo)) {
+    Serial.println("Failed to obtain time");
+    return;
+  }
+  Serial.println(&timeinfo, "Local time: %Y-%m-%d %H:%M:%S");
+}
+
+void sendData(long time, int value) {
+  if (WiFi.status() == WL_CONNECTED) {
+    HTTPClient http;
+    http.begin(serverUrl);
+    http.addHeader("Content-Type", "application/json");
+    
+    String jsonPayload = "{\"time\": " + String(time) + ", \"medicion\": " + String(value) + ", \"nombrenodo\": \"ESP32\"}";
+    
+    // Imprimir los datos enviados por consola
+    Serial.print("Datos a enviar: ");
+    Serial.println(jsonPayload);
+    
+    int httpResponseCode = http.POST(jsonPayload);
+    
+    if (httpResponseCode > 0) {
+      String response = http.getString();
+      Serial.println(httpResponseCode);
+      Serial.println(response);
+      
+      // Encender el LED azul al enviar datos con éxito
+      digitalWrite(blueLedPin, HIGH);
+      delay(100); // Mantener encendido el LED azul por un breve momento
+      digitalWrite(blueLedPin, LOW);
+    } else {
+      Serial.print("Error on sending POST: ");
+      Serial.println(httpResponseCode);
+    }
+    
+    http.end();
+  } else {
+    Serial.println("WiFi Disconnected");
+  }
+}
+
+
+
